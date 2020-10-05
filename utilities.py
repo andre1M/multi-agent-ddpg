@@ -165,6 +165,7 @@ def train(agent, env, n_episodes=2000):
     :param n_episodes: maximum number of training episodes;
     :return: scores per episode.
     """
+
     for handler in logging.root.handlers[:]:
         logging.root.removeHandler(handler)
     logging.basicConfig(level=logging.INFO, filename='training.log', filemode='w', format='%(asctime)s - %(message)s')
@@ -176,9 +177,9 @@ def train(agent, env, n_episodes=2000):
     scores_window = deque(maxlen=100)   # last 100 scores
 
     for i_episode in range(1, n_episodes + 1):
+        agent.reset()
         env_info = env.reset(train_mode=True)[brain_name]   # reset the environment
         state = env_info.vector_observations                # get the current state
-        agent.reset()
         score = np.zeros(len(env_info.agents))              # reset score for new episode
 
         while True:
@@ -201,19 +202,21 @@ def train(agent, env, n_episodes=2000):
         print('\rEpisode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_window)), end="")
 
         if i_episode % 100 == 0:
-            torch.save(agent.actor_local.state_dict(), 'checkpoint_actor.pth')
-            torch.save(agent.critic_local.state_dict(), 'checkpoint_critic.pth')
+            # torch.save(agent.actor_local.state_dict(), 'checkpoint_actor.pth')
+            # torch.save(agent.critic_local.state_dict(), 'checkpoint_critic.pth')
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_window)))
-            logging.info(f'Score average over the last 100 episodes reached {np.round(np.mean(scores_window), 5)} '
-                         f'after {i_episode} episodes.')
+            logging.info('Score average over the last 100 episodes reached {:.5f} after {:d} episodes.'
+                         .format(np.mean(scores_window), i_episode))
+
         if np.mean(scores_window) >= 0.5:
-            torch.save(agent.actor_local.state_dict(), 'final_checkpoint_actor.pth')
-            torch.save(agent.critic_local.state_dict(), 'final_checkpoint_critic.pth')
+            # torch.save(agent.actor_local.state_dict(), 'final_checkpoint_actor.pth')
+            # torch.save(agent.critic_local.state_dict(), 'final_checkpoint_critic.pth')
             print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(i_episode - 100,
                                                                                          np.mean(scores_window)))
-            logging.info(f'Environment solved in {i_episode - 100} episodes '
-                         f'with average score of {np.round(np.mean(scores_window), 5)}')
+            logging.info('Environment solved in {:d} episodes with average score of {:.5f}'
+                         .format(i_episode - 100, np.mean(scores_window)))
             break
+
     return scores, avg_scores
 
 

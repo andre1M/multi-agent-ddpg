@@ -40,12 +40,11 @@ if not os.path.exists('checkpoints'):
     os.mkdir('checkpoints')
 
 # save network weights
-checkpoint = {
-    'actor': agent.actor_local.state_dict(),
-    'critic': agent.critic_local.state_dict(),
-    'actor_target': agent.actor_target.state_dict(),
-    'critic_target': agent.critic_target.state_dict()
-}
+checkpoint = dict()
+for i in range(len(env_info.agents)):
+    checkpoint[f'actor_{i}'] = agent.actors_local.state_dict()
+    checkpoint[f'critic_{i}'] = agent.critics_local.state_dict()
+
 torch.save(checkpoint, 'checkpoints/maddpg.pth')
 
 if not os.path.exists('figures'):

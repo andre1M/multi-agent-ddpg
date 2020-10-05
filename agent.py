@@ -15,7 +15,7 @@ CRITIC_LR = 1e-3
 CRITIC_WD = 0
 DISCOUNT_FACTOR = 0.95
 BUFFER_SIZE = int(1e6)
-MINIBATCH_SIZE = 32
+MINIBATCH_SIZE = 64
 UPDATE_EVERY = 1
 TAU = 1e-2
 # # # HYPERPARAMETERS # # #
@@ -45,37 +45,36 @@ class MultiAgentDeepDeterministicPolicyGradient:
         random.seed(seed)
 
         # Initialize networks and optimizers
-        # self.actors_local = [
-        #     Actor(self.observation_size, self.action_size, seed=seed).to(DEVICE) for seed in range(self.num_agents)
-        # ]
-        # self.actors_target = [
-        #     Actor(self.observation_size, self.action_size, seed=seed).to(DEVICE) for seed in range(self.num_agents)
-        # ]
+        self.actors_local = [
+            Actor(self.observation_size, self.action_size, seed=seed).to(DEVICE)
+            for seed in range(self.num_agents * 0, self.num_agents * 1)
+        ]
+        self.actors_target = [
+            Actor(self.observation_size, self.action_size, seed=seed).to(DEVICE)
+            for seed in range(self.num_agents * 1, self.num_agents * 2)
+        ]
+        self.actor_optims = [Adam(actor.parameters(), lr=ACTOR_LR) for actor in self.actors_local]
 
-        self.actor_local = Actor(self.observation_size, self.action_size, seed=seed).to(DEVICE)
-        self.actor_target = Actor(self.observation_size, self.action_size, seed=seed).to(DEVICE)
-        hard_update(self.actor_local, self.actor_target)
-        self.actor_optim = Adam(self.actor_local.parameters(), lr=ACTOR_LR)
+        self.critics_local = [
+            Critic(self.num_agents * self.observation_size, self.num_agents * self.action_size, seed=seed).to(DEVICE)
+            for seed in range(self.num_agents * 2, self.num_agents * 3)
+        ]
+        self.critics_target = [
+            Critic(self.num_agents * self.observation_size, self.num_agents * self.action_size, seed=seed).to(DEVICE)
+            for seed in range(self.num_agents * 3, self.num_agents * 4)
+        ]
+        self.critic_optims = [
+            Adam(critic.parameters(), lr=ACTOR_LR, weight_decay=CRITIC_WD) for critic in self.critics_local
+        ]
 
-        self.critic_local = Critic(self.num_agents * self.observation_size,
-                                   self.num_agents * self.action_size,
-                                   seed=seed).to(DEVICE)
-        self.critic_target = Critic(self.num_agents * self.observation_size,
-                                    self.num_agents * self.action_size,
-                                    seed=seed).to(DEVICE)
-        hard_update(self.critic_local, self.critic_target)
-        self.critic_optim = Adam(self.critic_local.parameters(), lr=ACTOR_LR, weight_decay=CRITIC_WD)
-
-        self.noise = OrnsteinUhlenbeckActionNoise(action_size, seed)
+        self.noise = OrnsteinUhlenbeckActionNoise(self.num_agents * self.action_size, seed)
 
         # Initialize replay memory
         self.memory = ReplayBuffer(BUFFER_SIZE, MINIBATCH_SIZE, seed)
 
         self.t_step = 0
-        # self.eps_t = 0
-        # self.no_decay_steps = 0
         self.eps = 1
-        self.eps_decay = 0.995
+        self.eps_decay = 0.9995
         self.eps_min = 0.01
 
     def step(self, state, action: int, reward: float, next_state, done):
@@ -109,17 +108,17 @@ class MultiAgentDeepDeterministicPolicyGradient:
         :param state: (array_like) current state;
         :param explore: (bool) exploration or exploitation.
         """
-        # self.eps_t += 1
 
         state = torch.from_numpy(state).float().to(DEVICE)
-        self.actor_local.eval()
-        with torch.no_grad():
-            actions = self.actor_local(state).cpu().data.numpy()
-        self.actor_local.train()
+        actions = np.zeros((self.num_agents, self.action_size))
+        for i, actor in enumerate(self.actors_local):
+            actor.eval()
+            with torch.no_grad():
+                actions[i, :] = actor(state[i].unsqueeze(0)).cpu().data.numpy()
+            actor.train()
 
         if explore:
-            for action in actions:
-                action += self.noise(self.eps)
+            actions += self.noise(self.eps).reshape((self.num_agents, self.action_size))
             self.eps = max(self.eps_min, self.eps * self.eps_decay)
 
         return np.clip(actions, self.action_low, self.action_high)
@@ -132,72 +131,54 @@ class MultiAgentDeepDeterministicPolicyGradient:
         """
 
         states, actions, rewards, next_states, dones = experiences
-        states_full = states.view(MINIBATCH_SIZE, self.num_agents * self.observation_size)
-        next_states_full = next_states.view(MINIBATCH_SIZE, self.num_agents * self.observation_size)
+        states_full = states.view(MINIBATCH_SIZE, self.num_agents * self.observation_size).to(DEVICE)
+        next_states_full = next_states.view(MINIBATCH_SIZE, self.num_agents * self.observation_size).to(DEVICE)
 
         # Update Critic
-        next_actions = self.actor_target(next_states)
-        # next_actions = torch.reshape(next_actions, (MINIBATCH_SIZE, self.num_agents * self.action_size))
+        next_actions = torch.zeros(MINIBATCH_SIZE * self.num_agents, self.action_size).to(DEVICE)
+        for i, actor in enumerate(self.actors_target):
+            next_actions[i::self.num_agents, :] = actor(next_states[i::self.num_agents])
 
-        Q_targets_next = self.critic_target(
-            next_states_full,
-            next_actions.view(MINIBATCH_SIZE, self.action_size * self.num_agents)
-        )
+        Q_targets_next = torch.zeros(MINIBATCH_SIZE, self.num_agents).to(DEVICE)
+        for i, critic in enumerate(self.critics_target):
+            Q_targets_next[:, i] = critic(
+                next_states_full,
+                next_actions.view(MINIBATCH_SIZE, self.action_size * self.num_agents)
+            ).view(MINIBATCH_SIZE)
 
-        # Q_targets_next = self.critic_target(
-        #     next_states_full.repeat(1, 2).view(MINIBATCH_SIZE * self.num_agents, next_states_full.shape[1]),
-        #     next_actions
-        # )
+        Q_targets = rewards + (DISCOUNT_FACTOR * Q_targets_next * (1 - dones))
 
-        # Q_targets_next = self.critic_target(
-        #     torch.reshape(next_states, (MINIBATCH_SIZE, self.num_agents * self.observation_size)), next_actions
-        # )
+        Q_expected = torch.zeros(MINIBATCH_SIZE, self.num_agents).to(DEVICE)
+        for i, critic in enumerate(self.critics_local):
+            Q_expected[:, i] = critic(
+                states_full,
+                actions.view(MINIBATCH_SIZE, self.action_size * self.num_agents)
+            ).view(MINIBATCH_SIZE)
 
-        Q_targets = rewards.mean(-1).view(MINIBATCH_SIZE, 1) \
-                    + (DISCOUNT_FACTOR * Q_targets_next * (1 - dones.byte().any(-1).view(MINIBATCH_SIZE, 1)))
-
-        # Q_targets = rewards.view(MINIBATCH_SIZE * self.num_agents, 1) \
-        #             + (DISCOUNT_FACTOR * Q_targets_next
-        #             * (1 - dones.view(MINIBATCH_SIZE * self.num_agents, 1)))
-
-        # Q_expected = self.critic_local(
-        #     states_full.repeat(1, 2).view(MINIBATCH_SIZE * self.num_agents, states_full.shape[1]), actions
-        # )
-
-        Q_expected = self.critic_local(
-            states_full,
-            actions.view(MINIBATCH_SIZE, self.action_size * self.num_agents)
-        )
-
-        critic_loss = F.mse_loss(Q_expected, Q_targets)
-        self.critic_optim.zero_grad()
-        critic_loss.backward()
-        self.critic_optim.step()
+        for i, optim in enumerate(self.critic_optims):
+            critic_loss = F.mse_loss(Q_expected[:, i].detach(), Q_targets[:, i])
+            optim.zero_grad()
+            critic_loss.backward(retain_graph=True if i == 0 else None)
+            optim.step()
 
         # Update Actor
+        action_predictions = torch.zeros(MINIBATCH_SIZE * self.num_agents, self.action_size).to(DEVICE)
+        for i, actor in enumerate(self.actors_local):
+            action_predictions[i::self.num_agents, :] = actor(states[i::self.num_agents])
 
-        action_predictions = self.actor_local(states)
-        # actor_loss = -self.critic_local(
-        #     states_full.repeat(1, 2).view(MINIBATCH_SIZE * self.num_agents, states_full.shape[1]),
-        #     action_predictions
-        # ).mean()
-
-        actor_loss = -self.critic_local(
-            states_full,
-            action_predictions.view(MINIBATCH_SIZE, self.action_size * self.num_agents)
-        ).mean()
-
-        self.actor_optim.zero_grad()
-        actor_loss.backward()
-        self.actor_optim.step()
+        for i, (optim, critic) in enumerate(zip(self.actor_optims, self.critics_local)):
+            actor_loss = -critic(
+                states_full,
+                action_predictions.view(MINIBATCH_SIZE, self.action_size * self.num_agents).detach()
+            ).mean()
+            optim.zero_grad()
+            actor_loss.backward(retain_graph=True if i == 0 else None)
+            optim.step()
 
         # Target network soft update
-        soft_update(self.critic_local, self.critic_target, TAU)
-        soft_update(self.actor_local, self.actor_target, TAU)
+        for i in range(self.num_agents):
+            soft_update(self.critics_local[i], self.critics_target[i], TAU)
+            soft_update(self.actors_local[i], self.actors_target[i], TAU)
 
     def reset(self):
         self.noise.reset()
-
-    def make_checkpoint(self):
-        torch.save(self.actor_local.state_dict(), 'checkpoint_actor.pth')
-        torch.save(self.critic_local.state_dict(), 'checkpoint_critic.pth')
