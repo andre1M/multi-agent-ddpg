@@ -87,6 +87,6 @@ class Critic(nn.Module):
         x = self.bn2(x)
         x = F.leaky_relu(x)
 
-        # x = self.dropout(x)
+        x = self.dropout(x)
 
         return self.fc3(x)

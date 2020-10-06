@@ -12,8 +12,7 @@ import random
 
 # # # HYPERPARAMETERS # # #
 ACTOR_LR = 1e-3
-CRITIC_LR = 1e-3
-CRITIC_WD = 0
+CRITIC_LR = 5e-3
 DISCOUNT_FACTOR = 0.95
 BUFFER_SIZE = int(1e6)
 MINIBATCH_SIZE = 1024
@@ -41,28 +40,17 @@ class MultiAgentDeepDeterministicPolicyGradient:
 
         self.observation_size = observation_size
         self.action_size = action_size
-        self.action_low = -10
-        self.action_high = 10
+        self.action_low = -1
+        self.action_high = 1
         self.num_agents = num_agents
         random.seed(seed)
 
         # Initialize networks and optimizers
-        # # # ACTORS # # #
-        self.actors_local = [
-            Actor(self.observation_size, self.action_size, seed=seed).to(DEVICE)
-            for seed in range(self.num_agents * 0, self.num_agents * 1)
-        ]
-        self.actors_target = [
-            Actor(self.observation_size, self.action_size, seed=seed).to(DEVICE)
-            for seed in range(self.num_agents * 1, self.num_agents * 2)
-        ]
-
-        for i in range(self.num_agents):
-            hard_update(self.actors_local[i], self.actors_target[i])
-
-        self.actor_optims = [
-            Adam(actor.parameters(), lr=ACTOR_LR) for actor in self.actors_local
-        ]
+        # # # ACTOR # # #
+        self.actor_local = Actor(self.observation_size, self.action_size, seed=seed).to(DEVICE)
+        self.actor_target = Actor(self.observation_size, self.action_size, seed=seed).to(DEVICE)
+        hard_update(self.actor_local, self.actor_target)
+        self.actor_optim = Adam(self.actor_local.parameters(), lr=ACTOR_LR)
 
         # # # CRITICS # # #
         self.critics_local = [
@@ -89,7 +77,7 @@ class MultiAgentDeepDeterministicPolicyGradient:
         self.t_step = 0
         self.eps = 1
         self.eps_decay = 0.9999995
-        self.eps_min = 0.1
+        self.eps_min = 0.01
 
     def step(self, state, action: int, reward: float, next_state, done):
         """
@@ -127,22 +115,18 @@ class MultiAgentDeepDeterministicPolicyGradient:
         """
 
         state = torch.from_numpy(state).float().to(DEVICE)
-        actions = np.zeros((self.num_agents, self.action_size))
-        for i, actor in enumerate(self.actors_local):
-            actor.eval()
-            with torch.no_grad():
-                actions[i, :] = actor(state[i].unsqueeze(0)).cpu().data.numpy()
-            actor.train()
+        self.actor_local.eval()
+        with torch.no_grad():
+            actions = self.actor_local(state).cpu().data.numpy()
+        self.actor_local.train()
 
         if explore:
             actions += self.eps * np.random.normal(
                 0, 1, self.action_size * self.num_agents
             ).reshape((self.num_agents, self.action_size))
-            # actions += self.noise(self.eps).reshape((self.num_agents, self.action_size))
             self.eps = max(self.eps_min, self.eps * self.eps_decay)
 
-        return actions
-        # return np.clip(actions, self.action_low, self.action_high)
+        return np.clip(actions, self.action_low, self.action_high)
 
     def learn(self, agent: int, experiences):
         """
@@ -158,9 +142,7 @@ class MultiAgentDeepDeterministicPolicyGradient:
 
         # # # UPDATE CRITIC # # #
         # Collect next actions for each agent based on partial observations
-        next_actions = torch.zeros(MINIBATCH_SIZE * self.num_agents, self.action_size).to(DEVICE)
-        for i, actor in enumerate(self.actors_target):
-            next_actions[i::self.num_agents, :] = actor(next_states[i::self.num_agents])
+        next_actions = self.actor_local(next_states)
 
         # Evaluate target Q_values for next (state, action) pairs
         Q_targets_next = self.critics_target[agent](
@@ -187,13 +169,7 @@ class MultiAgentDeepDeterministicPolicyGradient:
         self.critic_optims[agent].step()
 
         # Update Actor
-        action_predictions = torch.zeros(MINIBATCH_SIZE * self.num_agents, self.action_size).to(DEVICE)
-        for i, actor in enumerate(self.actors_local):
-            if i == agent:
-                action_predictions[i::self.num_agents, :] = actor(states[i::self.num_agents])
-            else:
-                action_predictions[i::self.num_agents, :] = actor(states[i::self.num_agents]).detach()
-
+        action_predictions = self.actor_local(states)
         actor_loss = -self.critics_local[agent](
             states_full,
             action_predictions.view(MINIBATCH_SIZE, self.action_size * self.num_agents)
@@ -202,14 +178,14 @@ class MultiAgentDeepDeterministicPolicyGradient:
         # # make graph
         # make_dot(actor_loss).render(filename='actor_loss', format='png')
 
-        self.actor_optims[agent].zero_grad()
+        self.actor_optim.zero_grad()
         actor_loss.backward()
-        self.actor_optims[agent].step()
+        self.actor_optim.step()
 
     def soft_update(self):
         for agent in range(self.num_agents):
             soft_update(self.critics_local[agent], self.critics_target[agent], TAU)
-            soft_update(self.actors_local[agent], self.actors_target[agent], TAU)
+        soft_update(self.actor_local, self.actor_target, TAU)
 
     def reset(self):
         self.noise.reset()
