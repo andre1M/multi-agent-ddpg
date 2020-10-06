@@ -34,7 +34,7 @@ print('States have length:', state_size)
 agent = MultiAgentDeepDeterministicPolicyGradient(state_size, action_size, len(env_info.agents), seed=0)
 
 # train with linear epsilon decrease
-scores, avg_scores = train(agent, env, n_episodes=5000)
+scores, avg_scores = train(agent, env, n_episodes=20000)
 
 if not os.path.exists('checkpoints'):
     os.mkdir('checkpoints')
@@ -42,8 +42,8 @@ if not os.path.exists('checkpoints'):
 # save network weights
 checkpoint = dict()
 for i in range(len(env_info.agents)):
-    checkpoint[f'actor_{i}'] = agent.actors_local.state_dict()
-    checkpoint[f'critic_{i}'] = agent.critics_local.state_dict()
+    checkpoint[f'actor_{i}'] = agent.actors_local[i].state_dict()
+    checkpoint[f'critic_{i}'] = agent.critics_local[i].state_dict()
 
 torch.save(checkpoint, 'checkpoints/maddpg.pth')
 
