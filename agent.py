@@ -12,11 +12,11 @@ import random
 
 # # # HYPERPARAMETERS # # #
 ACTOR_LR = 1e-3
-CRITIC_LR = 5e-3
+CRITIC_LR = 1e-3
 DISCOUNT_FACTOR = 0.95
 BUFFER_SIZE = int(1e6)
-MINIBATCH_SIZE = 1024
-UPDATE_EVERY = 100
+MINIBATCH_SIZE = 512
+UPDATE_EVERY = 50
 NUM_UPDATES = 1
 TAU = 1e-2
 # # # HYPERPARAMETERS # # #
@@ -76,7 +76,7 @@ class MultiAgentDeepDeterministicPolicyGradient:
 
         self.t_step = 0
         self.eps = 1
-        self.eps_decay = 0.9999995
+        self.eps_decay = 0.99995
         self.eps_min = 0.01
 
     def step(self, state, action: int, reward: float, next_state, done):
@@ -150,8 +150,8 @@ class MultiAgentDeepDeterministicPolicyGradient:
             next_actions.view(MINIBATCH_SIZE, self.action_size * self.num_agents)
         )
 
-        Q_targets = rewards[:, agent].view(MINIBATCH_SIZE, 1) \
-            + (DISCOUNT_FACTOR * Q_targets_next * (1 - dones[:, agent].view(MINIBATCH_SIZE, 1)))
+        Q_targets = rewards.mean(1).view(MINIBATCH_SIZE, 1) \
+            + (DISCOUNT_FACTOR * Q_targets_next * (1 - dones.any(1).view(MINIBATCH_SIZE, 1)))
 
         Q_expected = self.critics_local[agent](
             states_full,
@@ -166,10 +166,18 @@ class MultiAgentDeepDeterministicPolicyGradient:
 
         self.critic_optims[agent].zero_grad()
         critic_loss.backward()
+        # torch.nn.utils.clip_grad_norm_(self.critics_local[agent].parameters(), 1)
         self.critic_optims[agent].step()
 
         # Update Actor
+        # action_predictions = torch.zeros(MINIBATCH_SIZE * self.num_agents, self.action_size).to(DEVICE)
+        # for i in range(self.num_agents):
+        #     if i == agent:
+        #         action_predictions[i::self.num_agents, :] = self.actor_local(states[i::self.num_agents])
+        #     else:
+        #         action_predictions[i::self.num_agents, :] = self.actor_local(states[i::self.num_agents]).detach()
         action_predictions = self.actor_local(states)
+
         actor_loss = -self.critics_local[agent](
             states_full,
             action_predictions.view(MINIBATCH_SIZE, self.action_size * self.num_agents)
