@@ -87,11 +87,8 @@ class ReplayBuffer:
         :param done: terminal state indicator.
         """
 
-        self.memory.append(
-            self.experience(state, action, reward, next_state, done)
-        )
+        self.memory.append(self.experience(state, action, reward, next_state, done))
 
-    # noinspection PyUnresolvedReferences
     def sample(self):
         """
         Randomly sample a batch of experiences from memory.

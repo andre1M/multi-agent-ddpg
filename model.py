@@ -6,7 +6,7 @@ from utilities import hidden_layer_init
 
 
 class Actor(nn.Module):
-    def __init__(self, observation_size, action_size, seed, fc1_units=400, fc2_units=300):
+    def __init__(self, observation_size, action_size, seed, fc1_units=256, fc2_units=128):
         super().__init__()
 
         # Random seed
@@ -18,6 +18,7 @@ class Actor(nn.Module):
         self.fc3 = nn.Linear(fc2_units, action_size)
 
         # Normalization
+        self.bn0 = nn.BatchNorm1d(observation_size)
         self.bn1 = nn.BatchNorm1d(fc1_units)
         self.bn2 = nn.BatchNorm1d(fc2_units)
 
@@ -33,12 +34,14 @@ class Actor(nn.Module):
         self.fc3.weight.data.uniform_(-3e-3, 3e-3)
 
     def forward(self, state):
+        state = self.bn0(state)
+
         x = self.fc1(state)
-        x = self.bn1(x)
+        # x = self.bn1(x)
         x = F.relu(x)
 
         x = self.fc2(x)
-        x = self.bn2(x)
+        # x = self.bn2(x)
         x = F.relu(x)
 
         x = self.fc3(x)
@@ -47,7 +50,7 @@ class Actor(nn.Module):
 
 
 class Critic(nn.Module):
-    def __init__(self, observation_size, action_size, seed, fc1_units=400, fc2_units=300):
+    def __init__(self, observation_size, action_size, seed, fc1_units=256, fc2_units=128):
         super().__init__()
 
         # Random seed
@@ -59,6 +62,7 @@ class Critic(nn.Module):
         self.fc3 = nn.Linear(fc2_units, 1)
 
         # Normalization
+        self.bn0 = nn.BatchNorm1d(observation_size)
         self.bn1 = nn.BatchNorm1d(fc1_units)
         self.bn2 = nn.BatchNorm1d(fc2_units)
 
@@ -77,16 +81,18 @@ class Critic(nn.Module):
         self.fc3.weight.data.uniform_(-3e-3, 3e-3)
 
     def forward(self, state, action):
+        state = self.bn0(state)
+
         x = self.fc1(state)
-        x = self.bn1(x)
+        # x = self.bn1(x)
         x = F.leaky_relu(x)
 
         x = torch.cat((x, action), dim=1)
 
         x = self.fc2(x)
-        x = self.bn2(x)
+        # x = self.bn2(x)
         x = F.leaky_relu(x)
 
-        x = self.dropout(x)
+        # x = self.dropout(x)
 
         return self.fc3(x)

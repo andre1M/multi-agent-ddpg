@@ -2,7 +2,7 @@ from model import Actor, Critic
 from utilities import hard_update, soft_update, OrnsteinUhlenbeckActionNoise, ReplayBuffer, DEVICE
 
 from torch.nn import functional as F
-from torch.optim import Adam, SGD
+from torch.optim import Adam
 from torchviz import make_dot
 import numpy as np
 import torch
@@ -11,12 +11,12 @@ import random
 
 
 # # # HYPERPARAMETERS # # #
-ACTOR_LR = 1e-3
-CRITIC_LR = 1e-3
+ACTOR_LR = 3e-3
+CRITIC_LR = 3e-3
 DISCOUNT_FACTOR = 0.95
 BUFFER_SIZE = int(1e6)
-MINIBATCH_SIZE = 512
-UPDATE_EVERY = 50
+MINIBATCH_SIZE = 1024
+UPDATE_EVERY = 100
 NUM_UPDATES = 1
 TAU = 1e-2
 # # # HYPERPARAMETERS # # #
@@ -38,21 +38,23 @@ class MultiAgentDeepDeterministicPolicyGradient:
         :param seed: random seed.
         """
 
-        self.observation_size = observation_size
-        self.action_size = action_size
-        self.action_low = -1
-        self.action_high = 1
-        self.num_agents = num_agents
         random.seed(seed)
 
+        self.observation_size = observation_size
+        self.action_size = action_size
+        self.num_agents = num_agents
+
+        self.action_low = -1.0
+        self.action_high = 1.0
+
         # Initialize networks and optimizers
-        # # # ACTOR # # #
+        # # # SHARED ACTOR # # #
         self.actor_local = Actor(self.observation_size, self.action_size, seed=seed).to(DEVICE)
         self.actor_target = Actor(self.observation_size, self.action_size, seed=seed).to(DEVICE)
         hard_update(self.actor_local, self.actor_target)
         self.actor_optim = Adam(self.actor_local.parameters(), lr=ACTOR_LR)
 
-        # # # CRITICS # # #
+        # # # INDIVIDUAL CRITICS # # #
         self.critics_local = [
             Critic(self.num_agents * self.observation_size, self.num_agents * self.action_size, seed=seed).to(DEVICE)
             for seed in range(self.num_agents * 2, self.num_agents * 3)
@@ -76,7 +78,7 @@ class MultiAgentDeepDeterministicPolicyGradient:
 
         self.t_step = 0
         self.eps = 1
-        self.eps_decay = 0.99995
+        self.eps_decay = 0.9995
         self.eps_min = 0.01
 
     def step(self, state, action: int, reward: float, next_state, done):
@@ -147,11 +149,11 @@ class MultiAgentDeepDeterministicPolicyGradient:
         # Evaluate target Q_values for next (state, action) pairs
         Q_targets_next = self.critics_target[agent](
             next_states_full,
-            next_actions.view(MINIBATCH_SIZE, self.action_size * self.num_agents)
+            next_actions.view(MINIBATCH_SIZE, self.num_agents * self.action_size)
         )
 
-        Q_targets = rewards.mean(1).view(MINIBATCH_SIZE, 1) \
-            + (DISCOUNT_FACTOR * Q_targets_next * (1 - dones.any(1).view(MINIBATCH_SIZE, 1)))
+        Q_targets = rewards[:, agent].view(MINIBATCH_SIZE, 1) \
+            + (DISCOUNT_FACTOR * Q_targets_next * (1 - dones[:, agent].view(MINIBATCH_SIZE, 1)))
 
         Q_expected = self.critics_local[agent](
             states_full,
@@ -160,13 +162,14 @@ class MultiAgentDeepDeterministicPolicyGradient:
 
         critic_loss = F.mse_loss(Q_expected, Q_targets.detach())
 
-        # # make graph
+        # make graph
         # make_dot(critic_loss,
         #          params=dict(self.critics_local[agent].named_parameters())).render(filename='critic_loss', format='png')
+        # make_dot(critic_loss).render(filename='critic_loss', format='png')
 
         self.critic_optims[agent].zero_grad()
         critic_loss.backward()
-        # torch.nn.utils.clip_grad_norm_(self.critics_local[agent].parameters(), 1)
+        torch.nn.utils.clip_grad_norm_(self.critics_local[agent].parameters(), 1)
         self.critic_optims[agent].step()
 
         # Update Actor
@@ -180,10 +183,10 @@ class MultiAgentDeepDeterministicPolicyGradient:
 
         actor_loss = -self.critics_local[agent](
             states_full,
-            action_predictions.view(MINIBATCH_SIZE, self.action_size * self.num_agents)
+            action_predictions.view(MINIBATCH_SIZE, self.num_agents * self.action_size)
         ).mean()
 
-        # # make graph
+        # make graph
         # make_dot(actor_loss).render(filename='actor_loss', format='png')
 
         self.actor_optim.zero_grad()
