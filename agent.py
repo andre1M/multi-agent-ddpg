@@ -11,14 +11,14 @@ import random
 
 
 # # # HYPERPARAMETERS # # #
-ACTOR_LR = 3e-3
-CRITIC_LR = 3e-3
-DISCOUNT_FACTOR = 0.95
+ACTOR_LR = 1e-4
+CRITIC_LR = 1e-3
+DISCOUNT_FACTOR = 0.99
 BUFFER_SIZE = int(1e6)
 MINIBATCH_SIZE = 1024
-UPDATE_EVERY = 100
+UPDATE_EVERY = 1
 NUM_UPDATES = 1
-TAU = 1e-2
+TAU = 1e-3
 # # # HYPERPARAMETERS # # #
 
 
@@ -160,7 +160,7 @@ class MultiAgentDeepDeterministicPolicyGradient:
             actions.view(MINIBATCH_SIZE, self.action_size * self.num_agents)
         )
 
-        critic_loss = F.mse_loss(Q_expected, Q_targets.detach())
+        critic_loss = F.mse_loss(Q_expected, Q_targets)
 
         # make graph
         # make_dot(critic_loss,
