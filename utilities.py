@@ -2,46 +2,33 @@ from matplotlib import pyplot as plt
 import numpy as np
 import torch
 
-from math import sqrt
-from collections import deque, namedtuple
+from collections import namedtuple, deque
 import random
 import logging
 
 
-DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-# from https://github.com/songrotek/DDPG/blob/master/ou_noise.py
 class OrnsteinUhlenbeckActionNoise:
-    """
-    Ornstein-Uhlenbeck random process.
-    """
-
-    def __init__(self, action_size: int, seed: float, mu=0, theta=0.15, sigma=0.2):
-        np.random.seed(seed)
-        self.action_size = action_size
-        self.mu = mu
+    def __init__(self, size, seed, theta=0.15, sigma=0.2):
+        """Initialize parameters and noise process."""
+        self.state = np.zeros(size)
         self.theta = theta
         self.sigma = sigma
-        self.state = np.ones(self.action_size) * self.mu
-        self.reset()
+
+        np.random.seed(seed)
 
     def reset(self):
-        """
-        Reset the internal state (= noise) to mean (mu).
-        """
+        """Reset the internal state (= noise) to mean (mu)."""
+        self.state.fill(0)
 
-        self.state = np.ones(self.action_size) * self.mu
-
-    def __call__(self, scale):
-        """
-        Update internal state and return it as a noise sample.
-        """
-
+    def __call__(self):
+        """Update internal state and return it as a noise sample."""
         x = self.state
-        dx = self.theta * (self.mu - x) + self.sigma * np.random.randn(len(x))
+        dx = self.theta * (-x) + self.sigma * np.random.randn(*x.shape)
         self.state = x + dx
-        return self.state * scale
+        return self.state
 
 
 class ReplayBuffer:
@@ -87,8 +74,11 @@ class ReplayBuffer:
         :param done: terminal state indicator.
         """
 
-        self.memory.append(self.experience(state, action, reward, next_state, done))
+        self.memory.append(
+            self.experience(state, action, reward, next_state, done)
+        )
 
+    # noinspection PyUnresolvedReferences
     def sample(self):
         """
         Randomly sample a batch of experiences from memory.
@@ -116,41 +106,9 @@ class ReplayBuffer:
 
         dones = torch.from_numpy(
             np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)
-        ).to(DEVICE)
+        ).float().to(DEVICE)
 
         return states, actions, rewards, next_states, dones
-
-
-def hard_update(source: torch.nn.Module, target: torch.nn.Module):
-    """
-    Copy network parameters from source to target.
-
-    :param source: Network whose parameters to copy;
-    :param target: Network to copy parameters to.
-    """
-
-    for target_param, param in zip(target.parameters(), source.parameters()):
-        target_param.data.copy_(param.data)
-
-
-def soft_update(target: torch.nn.Module, source: torch.nn.Module, tau: float):
-    """
-    Mix in source network parameters to the target network.
-
-    :param source: Network whose parameters to copy;
-    :param target: Network to copy parameters to;
-    :param tau: soft update coefficient; determines the fraction of the source network parameters
-        to be mixed in the target network parameters.
-    """
-
-    for target_param, param in zip(target.parameters(), source.parameters()):
-        target_param.data.copy_(target_param.data * (1.0 - tau) + param.data * tau)
-
-
-def hidden_layer_init(layer):
-    fan_in = layer.weight.data.size(0)
-    limit = 1 / sqrt(fan_in)
-    return -limit, limit
 
 
 def train(agent, env, n_episodes=2000):
@@ -168,16 +126,17 @@ def train(agent, env, n_episodes=2000):
     logging.basicConfig(level=logging.INFO, filename='training.log', filemode='w', format='%(asctime)s - %(message)s')
 
     brain_name = env.brain_names[0]
+    solved = False
 
     scores = []                         # list containing scores from each episode
-    avg_scores = []
+    scores_avg = []
     scores_window = deque(maxlen=100)   # last 100 scores
 
     for i_episode in range(1, n_episodes + 1):
-        agent.reset()
         env_info = env.reset(train_mode=True)[brain_name]   # reset the environment
         state = env_info.vector_observations                # get the current state
-        score = np.zeros(len(env_info.agents))              # reset score for new episode
+        agent.reset()
+        score = np.zeros(agent.num_agents)                  # reset score for new episode
 
         while True:
             action = agent.act(state, explore=True)                 # select action
@@ -194,27 +153,22 @@ def train(agent, env, n_episodes=2000):
         # save recent scores
         scores_window.append(np.mean(score))
         scores.append(np.mean(score))
-        avg_scores.append(np.mean(scores_window))
+        scores_avg.append(np.mean(scores_window))
 
-        print('\rEpisode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_window)), end="")
+        print('\rEpisode {}\tAverage Score: {:.3f}'.format(i_episode, np.mean(scores_window)), end="")
 
         if i_episode % 100 == 0:
-            # torch.save(agent.actor_local.state_dict(), 'checkpoint_actor.pth')
-            # torch.save(agent.critic_local.state_dict(), 'checkpoint_critic.pth')
-            print('\rEpisode {}\tAverage Score: {:.2f}'.format(i_episode, np.mean(scores_window)))
-            logging.info('Score average over the last 100 episodes reached {:.5f} after {:d} episodes.'
-                         .format(np.mean(scores_window), i_episode))
-
-        if np.mean(scores_window) >= 0.5:
-            # torch.save(agent.actor_local.state_dict(), 'final_checkpoint_actor.pth')
-            # torch.save(agent.critic_local.state_dict(), 'final_checkpoint_critic.pth')
-            print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(i_episode - 100,
+            print('\rEpisode {}\tAverage Score: {:.3f}'.format(i_episode, np.mean(scores_window)))
+            logging.info(f'Score average over last 100 episodes reached {np.mean(scores_window)} '
+                         f'after {i_episode} episodes.')
+        if np.mean(scores_window) >= 0.5 and not solved:
+            print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.3}'.format(i_episode - 100,
                                                                                          np.mean(scores_window)))
-            logging.info('Environment solved in {:d} episodes with average score of {:.5f}'
-                         .format(i_episode - 100, np.mean(scores_window)))
-            break
+            logging.info(f'Environment solved in {i_episode - 100} episodes '
+                         f'with average score of {np.mean(scores_window)}')
+            solved = True
 
-    return scores, avg_scores
+    return scores, scores_avg
 
 
 def plot_scores(scores, avg_scores, filename):
@@ -228,3 +182,4 @@ def plot_scores(scores, avg_scores, filename):
     fig.tight_layout()
     fig.savefig(filename)
     plt.close(fig)
+

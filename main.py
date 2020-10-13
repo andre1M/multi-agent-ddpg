@@ -1,5 +1,5 @@
 from utilities import train, plot_scores
-from agent import MultiAgentDeepDeterministicPolicyGradient
+from agent import MultiAgent
 
 from unityagents import UnityEnvironment
 import torch
@@ -26,7 +26,7 @@ state_size = len(state)
 
 
 # Initialize agent
-agent = MultiAgentDeepDeterministicPolicyGradient(state_size, action_size, len(env_info.agents), seed=0)
+agent = MultiAgent(state_size, action_size, len(env_info.agents), seed=256)
 
 # train with linear epsilon decrease
 scores, avg_scores = train(agent, env, n_episodes=20000)
@@ -36,15 +36,16 @@ if not os.path.exists('figures'):
     os.mkdir('figures')
 plot_scores(scores, avg_scores, filename='figures/score_maddpg.png')
 
-# # save network weights
-# if not os.path.exists('checkpoints'):
-#     os.mkdir('checkpoints')
-# checkpoint = dict()
-# for i in range(len(env_info.agents)):
-#     checkpoint[f'actor_{i}'] = agent.actors_local[i].state_dict()
-#     checkpoint[f'critic_{i}'] = agent.critics_local[i].state_dict()
-#
-# torch.save(checkpoint, 'checkpoints/maddpg.pth')
+# save network weights
+if not os.path.exists('checkpoints'):
+    os.mkdir('checkpoints')
+checkpoint = dict()
+for i in range(len(env_info.agents)):
+    checkpoint[f'actor_{i}'] = agent.agents[i].actor_local.state_dict()
+    checkpoint[f'actor_target_{i}'] = agent.agents[i].actor_target.state_dict()
+    checkpoint[f'critic_{i}'] = agent.agents[i].critic_local.state_dict()
+    checkpoint[f'critic_target{i}'] = agent.agents[i].critic_target.state_dict()
+torch.save(checkpoint, 'checkpoints/maddpg.pth')
 
 # close environment
 env.close()
