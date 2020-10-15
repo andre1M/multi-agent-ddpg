@@ -29,7 +29,7 @@ state_size = len(state)
 agent = MultiAgent(state_size, action_size, len(env_info.agents), seed=256)
 
 # train with linear epsilon decrease
-scores, avg_scores = train(agent, env, n_episodes=20000)
+scores, avg_scores = train(agent, env, n_episodes=3000)
 
 # plot the scores
 if not os.path.exists('figures'):

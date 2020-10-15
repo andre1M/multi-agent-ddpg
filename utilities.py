@@ -5,6 +5,7 @@ import torch
 from collections import namedtuple, deque
 import random
 import logging
+import os
 
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -131,6 +132,7 @@ def train(agent, env, n_episodes=2000):
     scores = []                         # list containing scores from each episode
     scores_avg = []
     scores_window = deque(maxlen=100)   # last 100 scores
+    max_score = 0
 
     for i_episode in range(1, n_episodes + 1):
         env_info = env.reset(train_mode=True)[brain_name]   # reset the environment
@@ -154,6 +156,18 @@ def train(agent, env, n_episodes=2000):
         scores_window.append(np.mean(score))
         scores.append(np.mean(score))
         scores_avg.append(np.mean(scores_window))
+
+        if max_score < np.mean(score):
+            max_score = np.mean(score)
+            if not os.path.exists('checkpoints'):
+                os.mkdir('checkpoints')
+            checkpoint = dict()
+            for i in range(len(agent.agents)):
+                checkpoint[f'actor_{i}'] = agent.agents[i].actor_local.state_dict()
+                checkpoint[f'actor_target_{i}'] = agent.agents[i].actor_target.state_dict()
+                checkpoint[f'critic_{i}'] = agent.agents[i].critic_local.state_dict()
+                checkpoint[f'critic_target{i}'] = agent.agents[i].critic_target.state_dict()
+            torch.save(checkpoint, 'checkpoints/max_maddpg.pth')
 
         print('\rEpisode {}\tAverage Score: {:.3f}'.format(i_episode, np.mean(scores_window)), end="")
 
