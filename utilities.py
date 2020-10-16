@@ -166,7 +166,7 @@ def train(agent, env, n_episodes=2000):
                 checkpoint[f'actor_{i}'] = agent.agents[i].actor_local.state_dict()
                 checkpoint[f'actor_target_{i}'] = agent.agents[i].actor_target.state_dict()
                 checkpoint[f'critic_{i}'] = agent.agents[i].critic_local.state_dict()
-                checkpoint[f'critic_target{i}'] = agent.agents[i].critic_target.state_dict()
+                checkpoint[f'critic_target_{i}'] = agent.agents[i].critic_target.state_dict()
             torch.save(checkpoint, 'checkpoints/max_maddpg.pth')
 
         print('\rEpisode {}\tAverage Score: {:.3f}'.format(i_episode, np.mean(scores_window)), end="")

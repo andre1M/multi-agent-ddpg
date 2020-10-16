@@ -44,7 +44,7 @@ for i in range(len(env_info.agents)):
     checkpoint[f'actor_{i}'] = agent.agents[i].actor_local.state_dict()
     checkpoint[f'actor_target_{i}'] = agent.agents[i].actor_target.state_dict()
     checkpoint[f'critic_{i}'] = agent.agents[i].critic_local.state_dict()
-    checkpoint[f'critic_target{i}'] = agent.agents[i].critic_target.state_dict()
+    checkpoint[f'critic_target_{i}'] = agent.agents[i].critic_target.state_dict()
 torch.save(checkpoint, 'checkpoints/maddpg.pth')
 
 # close environment

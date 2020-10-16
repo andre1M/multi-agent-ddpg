@@ -46,7 +46,7 @@ Ornstein - Uhlenbeck Random Process for exploration is initiated with &theta; = 
 
 ## Results
 
-Agents' score evolution during training is given in the figure below. It took the agents 2244 episodes to solve the task (to reach an average reward of 0.5 or higher over the last 100 episodes). See [REEDME](README.md) for trained agent visualization.
+Agents' score evolution during training is given in the figure below. It took the agents 2276 episodes to solve the task (to reach an average reward of 0.5 or higher over the last 100 episodes). See [REEDME](README.md) for trained agent visualization.
 
 ![Score][image3]
 
